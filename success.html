@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Form Terkirim - Kongres IV UKM Pencak Silat</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 30px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .checkmark {
+            width: 80px;
+            height: 80px;
+            background: #10b981;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            animation: scaleIn 0.5s ease;
+        }
+        
+        @keyframes scaleIn {
+            from { transform: scale(0); }
+            to { transform: scale(1); }
+        }
+        
+        .checkmark i {
+            font-size: 40px;
+            color: white;
+        }
+        
+        h1 {
+            color: #065f46;
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        
+        p {
+            color: #6b7280;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        
+        .button {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background: #4361ee;
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 500;
+            margin-top: 15px;
+            transition: all 0.3s ease;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        .button:hover {
+            background: #3a0ca3;
+            transform: translateY(-2px);
+        }
+        
+        .info {
+            font-size: 14px;
+            color: #9ca3af;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #f3f4f6;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="checkmark">
+            <i class="fas fa-check"></i>
+        </div>
+        
+        <h1>Form Terkirim!</h1>
+        
+        <p>
+            Terima kasih telah mengisi formulir kehadiran<br>
+            <strong>Kongres IV UKM Pencak Silat</strong>.
+        </p>
+        
+        <a href="index.html" class="button">
+            <i class="fas fa-arrow-left"></i> Kembali ke Halaman Utama
+        </a>
+        
+        <div class="info">
+            <i class="fas fa-info-circle"></i>
+            Data Anda telah berhasil disimpan dan akan diproses oleh panitia.
+        </div>
+    </div>
+    
+    <script>
+        // Auto redirect setelah 8 detik (opsional)
+        setTimeout(() => {
+            window.location.href = 'index.html';
+        }, 8000);
+        
+        // Animasi masuk
+        document.body.style.opacity = 0;
+        window.onload = () => {
+            document.body.style.transition = 'opacity 0.5s';
+            document.body.style.opacity = 1;
+        };
+    </script>
+</body>
+</html>
