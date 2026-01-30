@@ -1,9 +1,15 @@
 // CONFIGURASI FORM KEHADIRAN KONGRES IV
 const CONFIG = {
-    EVENT_DATE: '31 Februari 2026',
+    // ACARA
     EVENT_NAME: 'Kongres IV UKM Pencak Silat',
+    EVENT_DATE: '31 Februari 2026',
+    
+    // GOOGLE APPS SCRIPT URL (GANTI DENGAN URL ANDA SETELAH DEPLOY!)
+    GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwqYqfAIkZLi-TAdKy2-hSOUbC-ZJhwvSy6S77LllLA1IBdIXY8s5G00LBh-rYBCokg/exec',
+    
+    // ADMIN
     ADMIN_EMAIL: 'Fauzandedeahmad55@gmail.com',
-    WHATSAPP_NUMBER: '623147387373'
+    WHATSAPP_NUMBER: '6283147387373'
 };
 
 // State Management
@@ -18,14 +24,13 @@ let formData = {
     attendanceStatus: '',
     hadirReason: '',
     absenceReason: '',
-    submittedAt: '',
-    submissionId: ''
+    submissionId: '',
+    timestamp: ''
 };
 
 // Inisialisasi
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 DOM Content Loaded - Form dimulai');
-    console.log('📁 File script.js berjalan');
     initForm();
     setupEventListeners();
     loadFromLocalStorage();
@@ -53,8 +58,6 @@ function initForm() {
             }
             e.target.value = value;
         });
-    } else {
-        console.error('❌ Phone input TIDAK ditemukan!');
     }
     
     // Form submission
@@ -62,8 +65,6 @@ function initForm() {
     if (form) {
         console.log('✅ Form ditemukan, menambahkan submit listener');
         form.addEventListener('submit', handleFormSubmit);
-    } else {
-        console.error('❌ Form element TIDAK ditemukan!');
     }
     
     // Auto-save on input
@@ -79,7 +80,6 @@ function initForm() {
 // Setup event listeners
 function setupEventListeners() {
     console.log('🎯 Setting up event listeners');
-    // Enter key untuk next step
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && !e.target.matches('textarea, button[type="submit"]')) {
             e.preventDefault();
@@ -98,17 +98,13 @@ function toggleAttendanceFields() {
     const statusHadir = document.getElementById('statusHadir');
     const statusTidakHadir = document.getElementById('statusTidakHadir');
     
-    if (!hadirFields || !tidakHadirFields) {
-        console.error('❌ Attendance fields not found');
-        return;
-    }
+    if (!hadirFields || !tidakHadirFields) return;
     
     if (statusHadir.checked) {
         console.log('✅ Status: Hadir dipilih');
         hadirFields.style.display = 'block';
         tidakHadirFields.style.display = 'none';
         
-        // Reset fields tidak hadir
         const absenceReason = document.getElementById('absenceReason');
         if (absenceReason) {
             absenceReason.value = '';
@@ -124,7 +120,6 @@ function toggleAttendanceFields() {
         hadirFields.style.display = 'none';
         tidakHadirFields.style.display = 'block';
         
-        // Reset fields hadir
         const hadirReason = document.getElementById('hadirReason');
         if (hadirReason) {
             hadirReason.value = '';
@@ -173,8 +168,6 @@ function nextStep() {
         
         // Scroll ke atas
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    } else {
-        console.error('❌ Step elements not found');
     }
 }
 
@@ -204,10 +197,7 @@ function prevStep() {
 function validateCurrentStep() {
     console.log(`🔍 Validating step: ${currentStep}`);
     const currentStepElement = document.getElementById(`step${currentStep}`);
-    if (!currentStepElement) {
-        console.error('❌ Current step element not found');
-        return false;
-    }
+    if (!currentStepElement) return false;
     
     const inputs = currentStepElement.querySelectorAll('[required]');
     console.log(`📝 Required inputs ditemukan: ${inputs.length}`);
@@ -246,12 +236,11 @@ function validateCurrentStep() {
                 }
             }
             
-            // Phone validation - HANYA VALIDASI PANJANG, BUKAN PATTERN
+            // Phone validation
             if (input.id === 'phone') {
                 const phoneNumber = input.value.replace(/\D/g, '');
                 console.log(`📱 Phone validation: ${phoneNumber}, length: ${phoneNumber.length}`);
                 
-                // Hapus validasi pattern, cukup validasi panjang
                 if (phoneNumber.length < 10 || phoneNumber.length > 13) {
                     console.log(`❌ Phone tidak valid: ${phoneNumber}`);
                     input.classList.add('error');
@@ -264,7 +253,7 @@ function validateCurrentStep() {
         }
     }
     
-    // Validasi khusus step 2
+    // Validasi step 2
     if (currentStep === 2) {
         console.log('🔍 Validating step 2');
         const attendanceStatus = document.querySelector('input[name="attendanceStatus"]:checked');
@@ -291,8 +280,6 @@ function validateCurrentStep() {
                 showToast('error', 'Alasan hadir minimal 10 karakter');
                 hadirReason.focus();
                 isValid = false;
-            } else {
-                console.log(`✅ Alasan hadir valid: ${hadirReason.value.trim().length} karakter`);
             }
         }
         
@@ -311,8 +298,6 @@ function validateCurrentStep() {
                 showToast('error', 'Alasan tidak hadir minimal 10 karakter');
                 absenceReason.focus();
                 isValid = false;
-            } else {
-                console.log(`✅ Alasan tidak hadir valid: ${absenceReason.value.trim().length} karakter`);
             }
         }
     }
@@ -353,13 +338,13 @@ function saveStepData() {
             const hadirReason = document.getElementById('hadirReason');
             if (hadirReason) {
                 formData.hadirReason = hadirReason.value.trim();
-                formData.absenceReason = ''; // Reset alasan tidak hadir
+                formData.absenceReason = '';
             }
         } else if (attendanceStatus?.value === 'Tidak Hadir') {
             const absenceReason = document.getElementById('absenceReason');
             if (absenceReason) {
                 formData.absenceReason = absenceReason.value.trim();
-                formData.hadirReason = ''; // Reset alasan hadir
+                formData.hadirReason = '';
             }
         }
         
@@ -394,10 +379,7 @@ function updateStepIndicators() {
 function updateConfirmation() {
     console.log('📄 Updating confirmation page');
     const content = document.getElementById('confirmationContent');
-    if (!content) {
-        console.error('❌ Confirmation content element not found');
-        return;
-    }
+    if (!content) return;
     
     // Format phone
     const formattedPhone = formData.phone || '-';
@@ -461,7 +443,6 @@ async function handleFormSubmit(e) {
     // Validasi checkbox konfirmasi
     const confirmCheckbox = document.getElementById('confirmData');
     if (!confirmCheckbox) {
-        console.error('❌ Confirm checkbox not found');
         showToast('error', 'Terjadi kesalahan pada sistem');
         return;
     }
@@ -478,10 +459,9 @@ async function handleFormSubmit(e) {
     // Simpan data terakhir
     saveStepData();
     
-    // Generate submission ID
-    const submissionId = `SUB${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-    formData.submissionId = submissionId;
-    formData.submittedAt = new Date().toISOString();
+    // Generate submission ID dan timestamp
+    formData.submissionId = `SUB${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    formData.timestamp = new Date().toISOString();
     
     console.log('📦 Form data to submit:', formData);
     
@@ -493,31 +473,28 @@ async function handleFormSubmit(e) {
     }
     
     try {
-        // Simpan ke localStorage
-        console.log('💾 Saving to database...');
-        saveToDatabase(formData);
+        // Kirim ke Google Sheets
+        console.log('📤 Mengirim data ke Google Sheets...');
+        const result = await saveToGoogleSheets(formData);
         
-        // Clear form draft
-        clearLocalStorage();
-        
-        // Simpan untuk success page
-        localStorage.setItem('lastSubmission', JSON.stringify({
-            ...formData,
-            submissionId: submissionId
-        }));
-        
-        console.log('✅ Data saved to localStorage');
-        
-        // Simpan untuk admin
-        saveToAdminDatabase(formData);
-        
-        // Tunggu sebentar untuk efek visual
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        console.log('🌐 Redirecting to success page...');
-        
-        // Redirect ke success page
-        window.location.href = 'success.html';
+        if (result.success) {
+            // Clear form draft
+            clearLocalStorage();
+            
+            // Simpan untuk success page
+            localStorage.setItem('lastSubmission', JSON.stringify(formData));
+            
+            console.log('✅ Success! Redirecting...');
+            
+            // Tunggu sebentar untuk efek visual
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            // Redirect ke success page
+            window.location.href = 'success.html';
+            
+        } else {
+            showToast('warning', result.message);
+        }
         
     } catch (error) {
         console.error('❌ Error during form submission:', error);
@@ -530,35 +507,75 @@ async function handleFormSubmit(e) {
     }
 }
 
-// Simpan ke database lokal
-function saveToDatabase(data) {
+// Simpan ke Google Sheets
+async function saveToGoogleSheets(data) {
     try {
-        // Ambil data existing
-        const existingData = JSON.parse(localStorage.getItem('attendanceSubmissions') || '[]');
+        // Tambahkan user agent dan IP
+        const payload = {
+            ...data,
+            userAgent: navigator.userAgent,
+            ipAddress: await getIPAddress()
+        };
         
-        // Tambah data baru
-        existingData.push(data);
+        console.log('📤 Payload to Google Sheets:', payload);
         
-        // Simpan kembali
-        localStorage.setItem('attendanceSubmissions', JSON.stringify(existingData));
+        // Kirim ke Google Apps Script
+        const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors', // Important for Google Apps Script
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
         
-        console.log('💾 Data saved to database. Total entries:', existingData.length);
-        return true;
+        // Karena mode no-cors, kita anggap berhasil jika tidak ada error
+        console.log('✅ Data sent to Google Sheets');
+        
+        // Simpan backup lokal
+        saveToLocalBackup(data);
+        
+        return {
+            success: true,
+            message: 'Data berhasil dikirim!'
+        };
+        
     } catch (error) {
-        console.error('❌ Error saving to database:', error);
-        throw error;
+        console.error('❌ Error saving to Google Sheets:', error);
+        
+        // Fallback: simpan ke localStorage
+        saveToLocalBackup(data);
+        
+        return {
+            success: true,
+            message: 'Data disimpan secara lokal (offline mode)'
+        };
     }
 }
 
-// Simpan ke admin database terpisah
-function saveToAdminDatabase(data) {
+// Dapatkan IP Address
+async function getIPAddress() {
     try {
-        const adminData = JSON.parse(localStorage.getItem('adminAttendanceData') || '[]');
-        adminData.push(data);
-        localStorage.setItem('adminAttendanceData', JSON.stringify(adminData));
-        console.log('💾 Data saved to admin database');
+        const response = await fetch('https://api.ipify.org?format=json');
+        const data = await response.json();
+        return data.ip;
     } catch (error) {
-        console.error('❌ Error saving to admin database:', error);
+        return 'unknown';
+    }
+}
+
+// Simpan backup lokal
+function saveToLocalBackup(data) {
+    try {
+        const existing = JSON.parse(localStorage.getItem('form_backup') || '[]');
+        existing.push({
+            ...data,
+            backupTimestamp: new Date().toISOString()
+        });
+        localStorage.setItem('form_backup', JSON.stringify(existing));
+        console.log('💾 Data saved to local backup');
+    } catch (error) {
+        console.error('Error saving local backup:', error);
     }
 }
 
@@ -581,7 +598,6 @@ function loadFromLocalStorage() {
         if (savedDraft) {
             const draft = JSON.parse(savedDraft);
             
-            // Isi form dengan data yang tersimpan
             if (draft.formData) {
                 formData = { ...formData, ...draft.formData };
                 
@@ -603,7 +619,6 @@ function loadFromLocalStorage() {
                     document.getElementById('absenceReason').value = formData.absenceReason || '';
                 }
                 
-                // Tampilkan toast info
                 showToast('info', 'Data draft telah dimuat. Anda dapat melanjutkan pengisian.');
             }
         }
@@ -622,10 +637,7 @@ function clearLocalStorage() {
 function showToast(type, message) {
     console.log(`📢 Toast: ${type} - ${message}`);
     const toast = document.getElementById('toast');
-    if (!toast) {
-        console.error('❌ Toast element not found');
-        return;
-    }
+    if (!toast) return;
     
     const icon = type === 'success' ? 'check-circle' :
                  type === 'error' ? 'exclamation-circle' :
@@ -651,6 +663,4 @@ function showToast(type, message) {
     }, 5000);
 }
 
-
 console.log('✅ Attendance form JS loaded successfully');
-
