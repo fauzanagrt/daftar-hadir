@@ -407,7 +407,7 @@ function updateConfirmation() {
     if (formData.attendanceStatus === 'Hadir' && formData.hadirReason) {
         reasonInfo = `
             <div class="confirmation-item">
-                <div class="confirmation-label">Alasan Hadir:</div>
+                <div class="confirmation-label">Dua kata:</div>
                 <div class="confirmation-value">${formData.hadirReason}</div>
             </div>
         `;
@@ -653,3 +653,4 @@ function showToast(type, message) {
 
 
 console.log('✅ Attendance form JS loaded successfully');
+
