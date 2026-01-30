@@ -33,7 +33,7 @@
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f7fb;
+            background: linear-gradient(135deg, #f5f7fb 0%, #e3e7f1 100%);
             color: var(--dark);
             min-height: 100vh;
         }
@@ -177,6 +177,16 @@
             transform: translateY(-2px);
         }
         
+        .btn-info {
+            background: var(--info);
+            color: white;
+        }
+        
+        .btn-info:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+        }
+        
         /* Dashboard Styles */
         .stats-container {
             display: grid;
@@ -218,6 +228,32 @@
         .stat-label {
             color: var(--gray);
             font-size: 0.9rem;
+        }
+        
+        /* Info Bar */
+        .info-bar {
+            background: white;
+            border-radius: var(--radius);
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+        
+        .info-item i {
+            color: var(--primary);
         }
         
         /* Filter Section */
@@ -471,6 +507,17 @@
             margin-top: 20px;
         }
         
+        .action-buttons .btn {
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        /* Logout Button */
+        .logout-btn {
+            margin-top: 20px;
+            width: 100%;
+        }
+        
         /* Responsive */
         @media (max-width: 768px) {
             .filter-row {
@@ -491,9 +538,25 @@
                 flex-direction: column;
             }
             
-            .btn {
+            .action-buttons .btn {
                 width: 100%;
-                justify-content: center;
+            }
+            
+            .info-bar {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .login-container {
+                margin: 20px auto;
+                padding: 20px;
+            }
+            
+            .container {
+                padding: 10px;
             }
         }
     </style>
@@ -535,7 +598,7 @@
         </form>
         
         <div style="text-align: center; margin-top: 20px; color: var(--gray); font-size: 0.9rem;">
-            <p><i class="fas fa-info-circle"></i> Username: <strong>admin</strong> | Password: <strong>admin123</strong></p>
+            <p><i class="fas fa-info-circle"></i> Username: <strong>admin</strong> | Password: <strong>fauzan123</strong></p>
         </div>
     </div>
     
@@ -548,6 +611,22 @@
                 <div>
                     <strong>BERHASIL LOGIN!</strong> Selamat datang di Admin Panel.
                     <span id="adminGreeting"></span>
+                </div>
+            </div>
+            
+            <!-- Info Bar -->
+            <div class="info-bar">
+                <div class="info-item">
+                    <i class="fas fa-database"></i>
+                    <span>Total Data: <strong id="totalDataCount">0</strong></span>
+                </div>
+                <div class="info-item">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Auto-refresh setiap 30 detik</span>
+                </div>
+                <div class="info-item">
+                    <i class="fas fa-clock"></i>
+                    <span>Update terakhir: <strong id="lastUpdate">-</strong></span>
                 </div>
             </div>
             
@@ -605,6 +684,9 @@
                 <button class="btn btn-success" onclick="admin.refreshData()">
                     <i class="fas fa-sync-alt"></i> Refresh Data
                 </button>
+                <button class="btn btn-info" onclick="admin.syncLocalData()">
+                    <i class="fas fa-cloud-upload-alt"></i> Sync Data
+                </button>
                 <button class="btn btn-primary" onclick="admin.exportData('csv')">
                     <i class="fas fa-file-export"></i> Export CSV
                 </button>
@@ -614,14 +696,20 @@
                 <button class="btn btn-warning" onclick="admin.printData()">
                     <i class="fas fa-print"></i> Cetak Data
                 </button>
-                <button class="btn btn-danger" onclick="admin.clearAllData()" style="margin-left: auto;">
+                <button class="btn btn-danger" onclick="admin.clearAllData()">
                     <i class="fas fa-trash"></i> Hapus Semua Data
                 </button>
             </div>
             
-            <button class="btn btn-primary" onclick="admin.logout()" style="margin-top: 20px;">
+            <button class="btn btn-primary logout-btn" onclick="admin.logout()">
                 <i class="fas fa-sign-out-alt"></i> Logout
             </button>
+            
+            <div style="text-align: center; margin-top: 30px; color: var(--gray); font-size: 0.85rem;">
+                <p><i class="fas fa-info-circle"></i> 
+                    Data disimpan ke Google Sheets. Jika offline, data akan disimpan lokal dan bisa disinkronisasi nanti.
+                </p>
+            </div>
         </div>
     </div>
     
@@ -638,793 +726,6 @@
         </div>
     </div>
     
-    <script>
-        // CONFIGURASI
-        const CONFIG = {
-            // ACARA
-            EVENT_NAME: 'Kongres IV UKM Pencak Silat',
-            EVENT_DATE: '31 Februari 2026',
-            
-            // LOGIN ADMIN
-            ADMIN_USERNAME: 'admin',
-            ADMIN_PASSWORD: 'fauzan123',
-            
-            // STORAGE KEYS
-            STORAGE: {
-                SUBMISSIONS: 'attendanceSubmissions',
-                ADMIN_BACKUP: 'adminAttendanceData',
-                LAST_SUBMISSION: 'lastSubmission'
-            }
-        };
-
-        // Admin Panel JavaScript
-        class AdminPanel {
-            constructor() {
-                this.config = {
-                    itemsPerPage: 20,
-                    currentPage: 1,
-                    totalPages: 1,
-                    allData: [],
-                    filteredData: [],
-                    statistics: {
-                        total: 0,
-                        present: 0,
-                        absent: 0,
-                        units: new Set()
-                    }
-                };
-                
-                this.init();
-            }
-            
-            // Initialize Admin Panel
-            init() {
-                this.checkLoginStatus();
-                this.setupLoginForm();
-                this.setupEventListeners();
-            }
-            
-            // Check if user is logged in
-            checkLoginStatus() {
-                const isLoggedIn = localStorage.getItem('adminLoggedIn') === 'true';
-                const username = localStorage.getItem('adminUsername');
-                
-                if (isLoggedIn && username) {
-                    this.showDashboard(username);
-                    this.loadData();
-                }
-            }
-            
-            // Setup login form
-            setupLoginForm() {
-                const loginForm = document.getElementById('loginForm');
-                if (loginForm) {
-                    loginForm.addEventListener('submit', (e) => {
-                        e.preventDefault();
-                        this.handleLogin();
-                    });
-                }
-            }
-            
-            // Handle login
-            handleLogin() {
-                const username = document.getElementById('username').value.trim();
-                const password = document.getElementById('password').value.trim();
-                
-                if (username === CONFIG.ADMIN_USERNAME && password === CONFIG.ADMIN_PASSWORD) {
-                    localStorage.setItem('adminLoggedIn', 'true');
-                    localStorage.setItem('adminUsername', username);
-                    
-                    this.showDashboard(username);
-                    this.showNotification('success', 'Login berhasil!');
-                } else {
-                    this.showNotification('error', 'Username atau password salah!');
-                }
-            }
-            
-            // Show admin dashboard
-            showDashboard(username) {
-                document.getElementById('loginScreen').style.display = 'none';
-                document.getElementById('adminDashboard').style.display = 'block';
-                document.getElementById('adminGreeting').textContent = ` - Logged in as ${username}`;
-                
-                this.loadData();
-            }
-            
-            // Setup event listeners
-            setupEventListeners() {
-                // Escape key to close modal
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') {
-                        this.closeModal();
-                    }
-                });
-                
-                // Click outside modal to close
-                document.addEventListener('click', (e) => {
-                    if (e.target.classList.contains('modal-overlay')) {
-                        this.closeModal();
-                    }
-                });
-            }
-            
-            // Load data from localStorage
-            loadData() {
-                try {
-                    const dataSources = [
-                        CONFIG.STORAGE.SUBMISSIONS,
-                        CONFIG.STORAGE.ADMIN_BACKUP,
-                        CONFIG.STORAGE.LAST_SUBMISSION
-                    ];
-                    
-                    let allData = [];
-                    
-                    dataSources.forEach(source => {
-                        try {
-                            const data = localStorage.getItem(source);
-                            if (data) {
-                                const parsed = JSON.parse(data);
-                                if (Array.isArray(parsed)) {
-                                    allData = [...allData, ...parsed];
-                                } else if (parsed && parsed.submissionId) {
-                                    allData.push(parsed);
-                                }
-                            }
-                        } catch (e) {
-                            console.error(`Error loading ${source}:`, e);
-                        }
-                    });
-                    
-                    // Filter dan sort data
-                    const validData = allData.filter(item => 
-                        item && item.submissionId && item.fullName
-                    );
-                    
-                    // Remove duplicates
-                    const uniqueData = [];
-                    const seenIds = new Set();
-                    
-                    validData.forEach(item => {
-                        if (!seenIds.has(item.submissionId)) {
-                            seenIds.add(item.submissionId);
-                            uniqueData.push(item);
-                        }
-                    });
-                    
-                    // Sort by date (newest first)
-                    this.config.allData = uniqueData.sort((a, b) => 
-                        new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0)
-                    );
-                    
-                    // Update statistics
-                    this.updateStatistics();
-                    
-                    // Filter and display
-                    this.filterData();
-                    
-                } catch (error) {
-                    console.error('Error loading data:', error);
-                    this.showNotification('error', 'Gagal memuat data');
-                }
-            }
-            
-            // Update statistics
-            updateStatistics() {
-                const data = this.config.allData;
-                const stats = {
-                    total: data.length,
-                    present: data.filter(item => item.attendanceStatus === 'Hadir').length,
-                    absent: data.filter(item => item.attendanceStatus === 'Tidak Hadir').length,
-                    units: new Set(data.map(item => item.unitPerguruan).filter(Boolean))
-                };
-                
-                this.config.statistics = stats;
-                this.displayStatistics();
-            }
-            
-            // Display statistics
-            displayStatistics() {
-                const stats = this.config.statistics;
-                const container = document.getElementById('statsContainer');
-                
-                container.innerHTML = `
-                    <div class="stat-card total">
-                        <i class="fas fa-database"></i>
-                        <div class="stat-number">${stats.total}</div>
-                        <div class="stat-label">Total Peserta</div>
-                    </div>
-                    <div class="stat-card present">
-                        <i class="fas fa-user-check"></i>
-                        <div class="stat-number">${stats.present}</div>
-                        <div class="stat-label">Akan Hadir</div>
-                    </div>
-                    <div class="stat-card absent">
-                        <i class="fas fa-user-times"></i>
-                        <div class="stat-number">${stats.absent}</div>
-                        <div class="stat-label">Tidak Hadir</div>
-                    </div>
-                    <div class="stat-card units">
-                        <i class="fas fa-university"></i>
-                        <div class="stat-number">${stats.units.size}</div>
-                        <div class="stat-label">Unit Perguruan</div>
-                    </div>
-                `;
-            }
-            
-            // Filter data
-            filterData() {
-                const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-                const statusFilter = document.getElementById('statusFilter').value;
-                const unitFilter = document.getElementById('unitFilter').value;
-                
-                let filtered = [...this.config.allData];
-                
-                // Search filter
-                if (searchTerm) {
-                    filtered = filtered.filter(item => 
-                        (item.fullName && item.fullName.toLowerCase().includes(searchTerm)) ||
-                        (item.email && item.email.toLowerCase().includes(searchTerm)) ||
-                        (item.phone && item.phone.includes(searchTerm)) ||
-                        (item.unitPerguruan && item.unitPerguruan.toLowerCase().includes(searchTerm)) ||
-                        (item.prodi && item.prodi.toLowerCase().includes(searchTerm))
-                    );
-                }
-                
-                // Status filter
-                if (statusFilter) {
-                    filtered = filtered.filter(item => 
-                        item.attendanceStatus === statusFilter
-                    );
-                }
-                
-                // Unit filter
-                if (unitFilter) {
-                    filtered = filtered.filter(item => 
-                        item.unitPerguruan === unitFilter
-                    );
-                }
-                
-                this.config.filteredData = filtered;
-                this.displayData();
-            }
-            
-            // Display data in table
-            displayData() {
-                const container = document.getElementById('dataContainer');
-                const data = this.config.filteredData;
-                
-                if (data.length === 0) {
-                    container.innerHTML = `
-                        <div style="text-align: center; padding: 40px; background: white; border-radius: var(--radius);">
-                            <i class="fas fa-database" style="font-size: 3rem; color: var(--gray); margin-bottom: 20px;"></i>
-                            <h3>Tidak Ada Data</h3>
-                            <p>Tidak ada data yang sesuai dengan filter yang dipilih.</p>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                // Update unit filter options
-                this.updateUnitFilter();
-                
-                let html = `
-                    <div class="data-table-container">
-                        <div class="table-header">
-                            <div>
-                                <strong>Menampilkan ${data.length} dari ${this.config.allData.length} data</strong>
-                            </div>
-                            <div style="color: var(--gray); font-size: 0.9rem;">
-                                <i class="fas fa-info-circle"></i> Klik alasan untuk melihat lengkap
-                            </div>
-                        </div>
-                        
-                        <div class="table-wrapper">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 50px;">No</th>
-                                        <th>Nama Peserta</th>
-                                        <th>Kontak</th>
-                                        <th>Prodi & Unit</th>
-                                        <th style="width: 100px;">Status</th>
-                                        <th>Alasan</th>
-                                        <th style="width: 150px;">Waktu Submit</th>
-                                        <th style="width: 80px;">Aksi</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                `;
-                
-                data.forEach((item, index) => {
-                    // Format tanggal
-                    const date = item.submittedAt ? 
-                        new Date(item.submittedAt).toLocaleString('id-ID', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        }) : '-';
-                    
-                    // Alasan (hadir atau tidak hadir)
-                    const reason = item.hadirReason || item.absenceReason || '-';
-                    const reasonType = item.attendanceStatus === 'Hadir' ? 'Alasan Hadir' : 'Alasan Tidak Hadir';
-                    
-                    // Format alasan untuk preview
-                    const reasonPreview = reason.length > 100 ? 
-                        reason.substring(0, 100) + '...' : reason;
-                    
-                    html += `
-                        <tr>
-                            <td>${index + 1}</td>
-                            <td>
-                                <strong>${item.fullName || '-'}</strong>
-                                <div style="font-size: 0.85rem; color: var(--gray);">
-                                    ID: ${item.submissionId || '-'}
-                                </div>
-                            </td>
-                            <td>
-                                <div>${item.email || '-'}</div>
-                                <div style="font-size: 0.85rem;">${item.phone || '-'}</div>
-                            </td>
-                            <td>
-                                <div><strong>${item.prodi || '-'}</strong></div>
-                                <div style="font-size: 0.85rem; color: var(--gray);">
-                                    ${item.unitPerguruan || '-'}
-                                </div>
-                            </td>
-                            <td>
-                                <span class="status-badge ${item.attendanceStatus === 'Hadir' ? 'status-hadir' : 'status-tidak-hadir'}">
-                                    ${item.attendanceStatus || '-'}
-                                </span>
-                            </td>
-                            <td class="reason-cell">
-                                <div class="reason-preview">
-                                    <strong>${reasonType}:</strong> ${reasonPreview}
-                                </div>
-                                ${reason.length > 100 ? `
-                                    <button class="show-reason-btn" onclick="admin.showReason('${item.submissionId}')">
-                                        <i class="fas fa-expand-alt"></i> Lihat Selengkapnya
-                                    </button>
-                                ` : ''}
-                            </td>
-                            <td>
-                                <small>${date}</small>
-                            </td>
-                            <td>
-                                <button class="show-reason-btn" onclick="admin.showDetail('${item.submissionId}')" 
-                                        title="Lihat Detail">
-                                    <i class="fas fa-eye"></i> Detail
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                });
-                
-                html += `
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                `;
-                
-                container.innerHTML = html;
-            }
-            
-            // Update unit filter options
-            updateUnitFilter() {
-                const unitFilter = document.getElementById('unitFilter');
-                const units = [...this.config.statistics.units].sort();
-                
-                // Simpan nilai yang dipilih
-                const currentValue = unitFilter.value;
-                
-                // Clear options except first one
-                while (unitFilter.options.length > 1) {
-                    unitFilter.remove(1);
-                }
-                
-                // Add new options
-                units.forEach(unit => {
-                    const option = document.createElement('option');
-                    option.value = unit;
-                    option.textContent = unit;
-                    unitFilter.appendChild(option);
-                });
-                
-                // Restore selected value
-                unitFilter.value = currentValue;
-            }
-            
-            // Show reason in modal
-            showReason(submissionId) {
-                const item = this.config.allData.find(item => item.submissionId === submissionId);
-                if (!item) return;
-                
-                const reason = item.hadirReason || item.absenceReason || '-';
-                const reasonType = item.attendanceStatus === 'Hadir' ? 'Alasan Hadir' : 'Alasan Tidak Hadir';
-                
-                const modal = document.getElementById('detailModal');
-                const content = document.getElementById('modalContent');
-                
-                content.innerHTML = `
-                    <div class="modal-detail">
-                        <label>Nama Peserta</label>
-                        <div class="value">${item.fullName || '-'}</div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Status Kehadiran</label>
-                        <div class="value">
-                            <span class="status-badge ${item.attendanceStatus === 'Hadir' ? 'status-hadir' : 'status-tidak-hadir'}">
-                                ${item.attendanceStatus || '-'}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>${reasonType}</label>
-                        <div class="modal-reason">
-                            ${reason.replace(/\n/g, '<br>')}
-                        </div>
-                    </div>
-                `;
-                
-                modal.classList.add('active');
-            }
-            
-            // Show full detail
-            showDetail(submissionId) {
-                const item = this.config.allData.find(item => item.submissionId === submissionId);
-                if (!item) return;
-                
-                const reason = item.hadirReason || item.absenceReason || '-';
-                const reasonType = item.attendanceStatus === 'Hadir' ? 'Alasan Hadir' : 'Alasan Tidak Hadir';
-                
-                // Format tanggal
-                const date = item.submittedAt ? 
-                    new Date(item.submittedAt).toLocaleString('id-ID', {
-                        weekday: 'long',
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }) : '-';
-                
-                const modal = document.getElementById('detailModal');
-                const content = document.getElementById('modalContent');
-                
-                content.innerHTML = `
-                    <div class="modal-detail">
-                        <label>ID Pendaftaran</label>
-                        <div class="value">${item.submissionId || '-'}</div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Nama Lengkap</label>
-                        <div class="value">${item.fullName || '-'}</div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Email</label>
-                        <div class="value">${item.email || '-'}</div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Nomor HP/WhatsApp</label>
-                        <div class="value">${item.phone || '-'}</div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Program Studi</label>
-                        <div class="value">${item.prodi || '-'}</div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Unit Perguruan</label>
-                        <div class="value">${item.unitPerguruan || '-'}</div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Status Kehadiran</label>
-                        <div class="value">
-                            <span class="status-badge ${item.attendanceStatus === 'Hadir' ? 'status-hadir' : 'status-tidak-hadir'}">
-                                ${item.attendanceStatus || '-'}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>${reasonType}</label>
-                        <div class="modal-reason">
-                            ${reason.replace(/\n/g, '<br>')}
-                        </div>
-                    </div>
-                    <div class="modal-detail">
-                        <label>Waktu Submit</label>
-                        <div class="value">${date}</div>
-                    </div>
-                `;
-                
-                modal.classList.add('active');
-            }
-            
-            // Close modal
-            closeModal() {
-                document.getElementById('detailModal').classList.remove('active');
-            }
-            
-            // Refresh data
-            refreshData() {
-                this.loadData();
-                this.showNotification('success', 'Data berhasil di-refresh');
-            }
-            
-            // Export data
-            exportData(format) {
-                if (this.config.allData.length === 0) {
-                    this.showNotification('warning', 'Tidak ada data untuk di-export');
-                    return;
-                }
-                
-                if (format === 'csv') {
-                    this.exportToCSV();
-                } else if (format === 'json') {
-                    this.exportToJSON();
-                }
-            }
-            
-            // Export to CSV (dengan alasan)
-            exportToCSV() {
-                const headers = [
-                    'No',
-                    'ID Pendaftaran',
-                    'Nama Lengkap',
-                    'Email',
-                    'No. HP',
-                    'Program Studi',
-                    'Unit Perguruan',
-                    'Status Kehadiran',
-                    'Alasan/Keterangan',
-                    'Waktu Submit'
-                ];
-                
-                const csvRows = [
-                    headers.join(','),
-                    ...this.config.allData.map((row, index) => {
-                        const values = [
-                            index + 1,
-                            `"${row.submissionId || ''}"`,
-                            `"${row.fullName || ''}"`,
-                            `"${row.email || ''}"`,
-                            `"${row.phone || ''}"`,
-                            `"${row.prodi || ''}"`,
-                            `"${row.unitPerguruan || ''}"`,
-                            `"${row.attendanceStatus || ''}"`,
-                            `"${(row.hadirReason || row.absenceReason || '').replace(/"/g, '""')}"`,
-                            `"${new Date(row.submittedAt || Date.now()).toLocaleString('id-ID')}"`
-                        ];
-                        return values.join(',');
-                    })
-                ];
-                
-                const csvContent = csvRows.join('\n');
-                const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `data-kehadiran-kongres-${new Date().toISOString().split('T')[0]}.csv`;
-                link.click();
-                URL.revokeObjectURL(url);
-                
-                this.showNotification('success', 'Data berhasil di-export ke CSV');
-            }
-            
-            // Export to JSON
-            exportToJSON() {
-                const jsonString = JSON.stringify(this.config.allData, null, 2);
-                const blob = new Blob([jsonString], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `data-kehadiran-kongres-${new Date().toISOString().split('T')[0]}.json`;
-                link.click();
-                URL.revokeObjectURL(url);
-                
-                this.showNotification('success', 'Data berhasil di-export ke JSON');
-            }
-            
-            // Print data
-            printData() {
-                const printWindow = window.open('', '_blank');
-                printWindow.document.write(`
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>Data Kehadiran Kongres IV UKM Pencak Silat</title>
-                        <style>
-                            body { font-family: Arial, sans-serif; padding: 20px; }
-                            h1 { text-align: center; color: #333; }
-                            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                            th { background: #f5f5f5; padding: 10px; border: 1px solid #ddd; text-align: left; }
-                            td { padding: 10px; border: 1px solid #ddd; vertical-align: top; }
-                            .reason { max-width: 300px; word-wrap: break-word; }
-                            @media print {
-                                @page { margin: 0.5in; }
-                                .no-print { display: none; }
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        <h1>Data Kehadiran Kongres IV UKM Pencak Silat</h1>
-                        <p>Total Data: ${this.config.allData.length} | Dicetak: ${new Date().toLocaleString('id-ID')}</p>
-                        
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>No</th>
-                                    <th>Nama</th>
-                                    <th>Prodi</th>
-                                    <th>Unit</th>
-                                    <th>Status</th>
-                                    <th class="reason">Alasan</th>
-                                    <th>Waktu</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${this.config.allData.map((item, index) => `
-                                    <tr>
-                                        <td>${index + 1}</td>
-                                        <td>${item.fullName || '-'}</td>
-                                        <td>${item.prodi || '-'}</td>
-                                        <td>${item.unitPerguruan || '-'}</td>
-                                        <td>${item.attendanceStatus || '-'}</td>
-                                        <td class="reason">${item.hadirReason || item.absenceReason || '-'}</td>
-                                        <td>${new Date(item.submittedAt || Date.now()).toLocaleDateString('id-ID')}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                        
-                        <div class="no-print" style="margin-top: 30px; text-align: center;">
-                            <button onclick="window.print()" style="padding: 10px 20px; background: #4361ee; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                <i class="fas fa-print"></i> Cetak
-                            </button>
-                            <button onclick="window.close()" style="padding: 10px 20px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px;">
-                                <i class="fas fa-times"></i> Tutup
-                            </button>
-                        </div>
-                        
-                        <script>
-                            window.onload = function() {
-                                window.print();
-                            };
-                        <\/script>
-                    </body>
-                    </html>
-                `);
-                printWindow.document.close();
-            }
-            
-            // Clear all data
-            clearAllData() {
-                if (!confirm('PERINGATAN: Ini akan menghapus SEMUA data peserta! Apakah Anda yakin?')) {
-                    return;
-                }
-                
-                if (!confirm('SERIUS? Semua data akan hilang permanen! Tekan OK untuk melanjutkan.')) {
-                    return;
-                }
-                
-                // Clear all storage
-                localStorage.removeItem(CONFIG.STORAGE.SUBMISSIONS);
-                localStorage.removeItem(CONFIG.STORAGE.ADMIN_BACKUP);
-                localStorage.removeItem(CONFIG.STORAGE.LAST_SUBMISSION);
-                
-                this.config.allData = [];
-                this.config.filteredData = [];
-                this.updateStatistics();
-                this.displayData();
-                
-                this.showNotification('success', 'Semua data berhasil dihapus');
-            }
-            
-            // Logout
-            logout() {
-                if (confirm('Apakah Anda yakin ingin logout?')) {
-                    localStorage.removeItem('adminLoggedIn');
-                    localStorage.removeItem('adminUsername');
-                    
-                    document.getElementById('adminDashboard').style.display = 'none';
-                    document.getElementById('loginScreen').style.display = 'block';
-                    
-                    document.getElementById('username').value = '';
-                    document.getElementById('password').value = '';
-                    
-                    this.showNotification('info', 'Anda telah logout');
-                }
-            }
-            
-            // Show notification
-            showNotification(type, message) {
-                const notification = document.createElement('div');
-                notification.className = `notification notification-${type}`;
-                
-                const icons = {
-                    success: 'check-circle',
-                    error: 'exclamation-circle',
-                    warning: 'exclamation-triangle',
-                    info: 'info-circle'
-                };
-                
-                const colors = {
-                    success: '#10b981',
-                    error: '#ef4444',
-                    warning: '#f59e0b',
-                    info: '#3b82f6'
-                };
-                
-                notification.innerHTML = `
-                    <i class="fas fa-${icons[type] || 'info-circle'}"></i>
-                    <span>${message}</span>
-                `;
-                
-                notification.style.cssText = `
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: white;
-                    border-left: 4px solid ${colors[type]};
-                    border-radius: 8px;
-                    padding: 16px 20px;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-                    z-index: 9999;
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    min-width: 300px;
-                    max-width: 400px;
-                    animation: slideIn 0.3s ease;
-                `;
-                
-                notification.querySelector('i').style.color = colors[type];
-                
-                document.body.appendChild(notification);
-                
-                // Auto remove
-                setTimeout(() => {
-                    notification.style.animation = 'slideOut 0.3s ease';
-                    setTimeout(() => notification.remove(), 300);
-                }, 5000);
-                
-                // Add CSS for animation
-                if (!document.querySelector('#notification-styles')) {
-                    const style = document.createElement('style');
-                    style.id = 'notification-styles';
-                    style.textContent = `
-                        @keyframes slideIn {
-                            from {
-                                opacity: 0;
-                                transform: translateX(100%);
-                            }
-                            to {
-                                opacity: 1;
-                                transform: translateX(0);
-                            }
-                        }
-                        @keyframes slideOut {
-                            from {
-                                opacity: 1;
-                                transform: translateX(0);
-                            }
-                            to {
-                                opacity: 0;
-                                transform: translateX(100%);
-                            }
-                        }
-                    `;
-                    document.head.appendChild(style);
-                }
-            }
-        }
-        
-        // Initialize Admin Panel
-        const admin = new AdminPanel();
-        
-        // Make admin available globally
-        window.admin = admin;
-    </script>
+    <script src="admin.js"></script>
 </body>
 </html>
