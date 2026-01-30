@@ -285,7 +285,7 @@ function validateCurrentStep() {
                 showToast('error', 'Harap isi alasan hadir');
                 hadirReason.focus();
                 isValid = false;
-            } else if (hadirReason.value.trim().length < 10) {
+            } else if (hadirReason.value.trim().length < 1) {
                 console.log(`❌ Alasan hadir terlalu pendek: ${hadirReason.value.trim().length} karakter`);
                 hadirReason.classList.add('error');
                 showToast('error', 'Alasan hadir minimal 10 karakter');
@@ -650,5 +650,6 @@ function showToast(type, message) {
         toast.classList.remove('show');
     }, 5000);
 }
+
 
 console.log('✅ Attendance form JS loaded successfully');
