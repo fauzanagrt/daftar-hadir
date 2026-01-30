@@ -1,19 +1,30 @@
-// Admin Panel JavaScript
+// Admin Panel JavaScript untuk Kongres IV UKM Pencak Silat
 class AdminPanel {
     constructor() {
         this.config = {
-            adminCredentials: {
-                username: 'fauzan',
-                password: 'fauzan123' // Ganti dengan password yang lebih aman!
-            },
-            itemsPerPage: 10,
+            // URL Google Apps Script (SAMA DENGAN DI SCRIPT.JS)
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwqYqfAIkZLi-TAdKy2-hSOUbC-ZJhwvSy6S77LllLA1IBdIXY8s5G00LBh-rYBCokg/exec',
+            
+            // Login credentials
+            ADMIN_USERNAME: 'admin',
+            ADMIN_PASSWORD: 'fauzan123',
+            
+            // Data management
+            itemsPerPage: 20,
             currentPage: 1,
             totalPages: 1,
-            selectedRows: new Set(),
             allData: [],
             filteredData: [],
-            currentDeleteId: null,
-            currentDeleteIds: null
+            statistics: {
+                total: 0,
+                present: 0,
+                absent: 0,
+                units: new Set()
+            },
+            
+            // UI state
+            selectedRows: new Set(),
+            isLoading: false
         };
         
         this.init();
@@ -21,6 +32,7 @@ class AdminPanel {
     
     // Initialize Admin Panel
     init() {
+        console.log('🚀 Admin Panel Initializing...');
         this.checkLoginStatus();
         this.setupLoginForm();
         this.setupEventListeners();
@@ -33,6 +45,9 @@ class AdminPanel {
         
         if (isLoggedIn && username) {
             this.showDashboard(username);
+            this.loadData();
+        } else {
+            console.log('🔒 User not logged in');
         }
     }
     
@@ -52,8 +67,8 @@ class AdminPanel {
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value.trim();
         
-        if (username === this.config.adminCredentials.username && 
-            password === this.config.adminCredentials.password) {
+        if (username === this.config.ADMIN_USERNAME && 
+            password === this.config.ADMIN_PASSWORD) {
             
             // Save login status
             localStorage.setItem('adminLoggedIn', 'true');
@@ -70,25 +85,24 @@ class AdminPanel {
     showDashboard(username) {
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('adminDashboard').style.display = 'block';
-        document.getElementById('adminName').textContent = username;
+        document.getElementById('adminGreeting').textContent = ` - Logged in as ${username}`;
         
-        // Load data
         this.loadData();
-        this.updateLastUpdate();
         
-        // Start auto-refresh timer (every 30 seconds)
-        this.autoRefresh = setInterval(() => {
-            this.loadData();
+        // Auto-refresh every 30 seconds
+        this.autoRefreshInterval = setInterval(() => {
+            if (!this.config.isLoading) {
+                this.loadData();
+            }
         }, 30000);
     }
     
     // Setup event listeners
     setupEventListeners() {
-        // Escape key to close modals
+        // Escape key to close modal
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.closeModal();
-                this.closeDeleteModal();
             }
         });
         
@@ -96,589 +110,511 @@ class AdminPanel {
         document.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal-overlay')) {
                 this.closeModal();
-                this.closeDeleteModal();
             }
         });
     }
     
-    // Load data from localStorage
-    loadData() {
+    // Load data from Google Sheets
+    async loadData() {
         try {
-            // Load from main storage
-            const mainData = JSON.parse(localStorage.getItem('attendanceSubmissions') || '[]');
+            this.config.isLoading = true;
+            this.showLoading(true);
             
-            // Load from admin backup storage
-            const adminData = JSON.parse(localStorage.getItem('adminAttendanceData') || '[]');
+            console.log('📥 Loading data from Google Sheets...');
             
-            // Merge data (remove duplicates by ID)
-            const allData = [...mainData, ...adminData];
-            const uniqueData = this.removeDuplicates(allData);
+            // Coba ambil dari Google Sheets
+            const response = await fetch(`${this.config.GOOGLE_SCRIPT_URL}?action=getData`);
             
-            // Sort by date (newest first)
-            this.config.allData = uniqueData.sort((a, b) => 
-                new Date(b.submittedAt || b.timestamp) - new Date(a.submittedAt || a.timestamp)
-            );
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             
-            // Update statistics
-            this.updateStatistics();
+            const result = await response.json();
             
-            // Filter and render
-            this.filterData();
+            if (result.success) {
+                this.config.allData = result.data;
+                console.log(`✅ Loaded ${this.config.allData.length} records from Google Sheets`);
+            } else {
+                // Fallback ke localStorage
+                await this.loadLocalBackup();
+                throw new Error('Gagal mengambil data dari Google Sheets');
+            }
             
         } catch (error) {
-            console.error('Error loading data:', error);
-            this.showNotification('error', 'Gagal memuat data: ' + error.message);
+            console.error('❌ Error loading from Google Sheets:', error);
+            
+            // Fallback ke localStorage backup
+            await this.loadLocalBackup();
+            
+            this.showNotification('warning', 
+                'Menggunakan data lokal. ' + 
+                'Pastikan koneksi internet tersedia untuk sinkronisasi.'
+            );
+            
+        } finally {
+            this.config.isLoading = false;
+            this.showLoading(false);
+            
+            // Update statistics dan tampilkan data
+            this.updateStatistics();
+            this.filterData();
+            this.updateLastUpdate();
         }
     }
     
-    // Remove duplicate entries
-    removeDuplicates(data) {
-        const seen = new Set();
-        return data.filter(item => {
-            const id = item.submissionId || item.id || 
-                      `${item.email}_${item.submittedAt || item.timestamp}`;
-            if (seen.has(id)) {
-                return false;
+    // Load data from local backup
+    async loadLocalBackup() {
+        try {
+            const backupData = JSON.parse(localStorage.getItem('form_backup') || '[]');
+            const sheetData = JSON.parse(localStorage.getItem('adminAttendanceData') || '[]');
+            const lastSub = JSON.parse(localStorage.getItem('lastSubmission') || '[]');
+            
+            // Gabungkan semua data lokal
+            let allLocalData = [...backupData, ...sheetData];
+            if (lastSub && lastSub.submissionId) {
+                allLocalData.push(lastSub);
             }
-            seen.add(id);
+            
+            // Hapus duplikat berdasarkan submissionId
+            const uniqueData = [];
+            const seenIds = new Set();
+            
+            allLocalData.forEach(item => {
+                if (item.submissionId && !seenIds.has(item.submissionId)) {
+                    seenIds.add(item.submissionId);
+                    uniqueData.push(item);
+                }
+            });
+            
+            this.config.allData = uniqueData.sort((a, b) => 
+                new Date(b.timestamp || b.backupTimestamp || 0) - 
+                new Date(a.timestamp || a.backupTimestamp || 0)
+            );
+            
+            console.log(`📂 Loaded ${this.config.allData.length} records from local backup`);
+            
+        } catch (error) {
+            console.error('❌ Error loading local backup:', error);
+            this.config.allData = [];
+        }
+    }
+    
+    // Sinkronisasi data lokal ke Google Sheets
+    async syncLocalData() {
+        try {
+            const backupData = JSON.parse(localStorage.getItem('form_backup') || '[]');
+            
+            if (backupData.length === 0) {
+                this.showNotification('info', 'Tidak ada data lokal yang perlu disinkronisasi');
+                return;
+            }
+            
+            this.showNotification('info', `Menyinkronisasi ${backupData.length} data lokal...`);
+            
+            // Kirim satu per satu ke Google Sheets
+            let successCount = 0;
+            let errorCount = 0;
+            
+            for (const data of backupData) {
+                try {
+                    await this.saveToGoogleSheets(data);
+                    successCount++;
+                    
+                    // Tunggu sebentar agar tidak rate limit
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
+                } catch (error) {
+                    console.error('Error syncing data:', error);
+                    errorCount++;
+                }
+            }
+            
+            // Clear backup jika semua berhasil
+            if (errorCount === 0) {
+                localStorage.removeItem('form_backup');
+                this.showNotification('success', 
+                    `${successCount} data berhasil disinkronisasi!`
+                );
+            } else {
+                this.showNotification('warning', 
+                    `${successCount} data berhasil, ${errorCount} gagal`
+                );
+            }
+            
+            // Reload data
+            await this.loadData();
+            
+        } catch (error) {
+            console.error('❌ Sync error:', error);
+            this.showNotification('error', 'Gagal sinkronisasi: ' + error.message);
+        }
+    }
+    
+    // Save data to Google Sheets (untuk sync)
+    async saveToGoogleSheets(data) {
+        try {
+            const response = await fetch(this.config.GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+            
             return true;
-        });
+            
+        } catch (error) {
+            throw error;
+        }
     }
     
     // Update statistics
     updateStatistics() {
         const data = this.config.allData;
+        const stats = {
+            total: data.length,
+            present: data.filter(item => item.attendanceStatus === 'Hadir').length,
+            absent: data.filter(item => item.attendanceStatus === 'Tidak Hadir').length,
+            units: new Set(data.map(item => item.unitPerguruan).filter(Boolean))
+        };
         
-        // Total registrations
-        document.getElementById('totalRegistrations').textContent = data.length;
+        this.config.statistics = stats;
+        this.displayStatistics();
+    }
+    
+    // Display statistics
+    displayStatistics() {
+        const stats = this.config.statistics;
+        const container = document.getElementById('statsContainer');
         
-        // Present count
-        const presentCount = data.filter(item => 
-            item.attendanceStatus === 'Hadir'
-        ).length;
-        document.getElementById('presentCount').textContent = presentCount;
+        if (!container) return;
         
-        // Absent count
-        const absentCount = data.filter(item => 
-            item.attendanceStatus === 'Tidak Hadir'
-        ).length;
-        document.getElementById('absentCount').textContent = absentCount;
+        container.innerHTML = `
+            <div class="stat-card total">
+                <i class="fas fa-database"></i>
+                <div class="stat-number">${stats.total}</div>
+                <div class="stat-label">Total Peserta</div>
+            </div>
+            <div class="stat-card present">
+                <i class="fas fa-user-check"></i>
+                <div class="stat-number">${stats.present}</div>
+                <div class="stat-label">Akan Hadir</div>
+            </div>
+            <div class="stat-card absent">
+                <i class="fas fa-user-times"></i>
+                <div class="stat-number">${stats.absent}</div>
+                <div class="stat-label">Tidak Hadir</div>
+            </div>
+            <div class="stat-card units">
+                <i class="fas fa-university"></i>
+                <div class="stat-number">${stats.units.size}</div>
+                <div class="stat-label">Unit Perguruan</div>
+            </div>
+        `;
+    }
+    
+    // Filter data
+    filterData() {
+        const searchTerm = document.getElementById('searchInput')?.value.toLowerCase() || '';
+        const statusFilter = document.getElementById('statusFilter')?.value || '';
+        const unitFilter = document.getElementById('unitFilter')?.value || '';
         
-        // Unique units
-        const uniqueUnits = [...new Set(data.map(item => item.unitPerguruan))].length;
-        document.getElementById('uniqueUnits').textContent = uniqueUnits;
+        let filtered = [...this.config.allData];
         
-        // Total data count
-        document.getElementById('totalDataCount').textContent = data.length;
+        // Search filter
+        if (searchTerm) {
+            filtered = filtered.filter(item => 
+                (item.fullName && item.fullName.toLowerCase().includes(searchTerm)) ||
+                (item.email && item.email.toLowerCase().includes(searchTerm)) ||
+                (item.phone && item.phone.includes(searchTerm)) ||
+                (item.unitPerguruan && item.unitPerguruan.toLowerCase().includes(searchTerm)) ||
+                (item.prodi && item.prodi.toLowerCase().includes(searchTerm)) ||
+                (item.submissionId && item.submissionId.toLowerCase().includes(searchTerm))
+            );
+        }
+        
+        // Status filter
+        if (statusFilter) {
+            filtered = filtered.filter(item => 
+                item.attendanceStatus === statusFilter
+            );
+        }
+        
+        // Unit filter
+        if (unitFilter) {
+            filtered = filtered.filter(item => 
+                item.unitPerguruan === unitFilter
+            );
+        }
+        
+        this.config.filteredData = filtered;
+        this.displayData();
+    }
+    
+    // Display data in table
+    displayData() {
+        const container = document.getElementById('dataContainer');
+        if (!container) return;
+        
+        const data = this.config.filteredData;
+        
+        if (data.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px; background: white; border-radius: var(--radius);">
+                    <i class="fas fa-database" style="font-size: 3rem; color: var(--gray); margin-bottom: 20px;"></i>
+                    <h3>Tidak Ada Data</h3>
+                    <p>Tidak ada data yang sesuai dengan filter yang dipilih.</p>
+                    <button class="btn btn-primary" onclick="admin.syncLocalData()" style="margin-top: 20px;">
+                        <i class="fas fa-sync-alt"></i> Coba Sinkronisasi Data
+                    </button>
+                </div>
+            `;
+            return;
+        }
         
         // Update unit filter options
         this.updateUnitFilter();
+        
+        let html = `
+            <div class="data-table-container">
+                <div class="table-header">
+                    <div>
+                        <strong>Menampilkan ${data.length} dari ${this.config.allData.length} data</strong>
+                    </div>
+                    <div style="color: var(--gray); font-size: 0.9rem;">
+                        <i class="fas fa-info-circle"></i> Klik alasan untuk melihat lengkap
+                    </div>
+                </div>
+                
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">No</th>
+                                <th>Nama Peserta</th>
+                                <th>Kontak</th>
+                                <th>Prodi & Unit</th>
+                                <th style="width: 100px;">Status</th>
+                                <th>Alasan</th>
+                                <th style="width: 150px;">Waktu Submit</th>
+                                <th style="width: 80px;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        
+        data.forEach((item, index) => {
+            // Format tanggal
+            const date = item.timestamp || item.submittedAt || item.backupTimestamp;
+            const formattedDate = date ? 
+                new Date(date).toLocaleString('id-ID', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }) : '-';
+            
+            // Alasan (hadir atau tidak hadir)
+            const reason = item.hadirReason || item.absenceReason || '-';
+            const reasonType = item.attendanceStatus === 'Hadir' ? 'Alasan Hadir' : 'Alasan Tidak Hadir';
+            
+            // Format alasan untuk preview
+            const reasonPreview = reason.length > 100 ? 
+                reason.substring(0, 100) + '...' : reason;
+            
+            html += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>
+                        <strong>${item.fullName || '-'}</strong>
+                        <div style="font-size: 0.85rem; color: var(--gray);">
+                            ID: ${item.submissionId || '-'}
+                        </div>
+                    </td>
+                    <td>
+                        <div>${item.email || '-'}</div>
+                        <div style="font-size: 0.85rem;">${item.phone || '-'}</div>
+                    </td>
+                    <td>
+                        <div><strong>${item.prodi || '-'}</strong></div>
+                        <div style="font-size: 0.85rem; color: var(--gray);">
+                            ${item.unitPerguruan || '-'}
+                        </div>
+                    </td>
+                    <td>
+                        <span class="status-badge ${item.attendanceStatus === 'Hadir' ? 'status-hadir' : 'status-tidak-hadir'}">
+                            ${item.attendanceStatus || '-'}
+                        </span>
+                    </td>
+                    <td class="reason-cell">
+                        <div class="reason-preview">
+                            <strong>${reasonType}:</strong> ${reasonPreview}
+                        </div>
+                        ${reason.length > 100 ? `
+                            <button class="show-reason-btn" onclick="admin.showReason('${item.submissionId}')">
+                                <i class="fas fa-expand-alt"></i> Lihat Selengkapnya
+                            </button>
+                        ` : ''}
+                    </td>
+                    <td>
+                        <small>${formattedDate}</small>
+                    </td>
+                    <td>
+                        <button class="show-reason-btn" onclick="admin.showDetail('${item.submissionId}')" 
+                                title="Lihat Detail">
+                            <i class="fas fa-eye"></i> Detail
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
     }
     
-    // Update unit filter dropdown
+    // Update unit filter options
     updateUnitFilter() {
         const unitFilter = document.getElementById('unitFilter');
         if (!unitFilter) return;
         
-        // Get unique units
-        const units = [...new Set(this.config.allData.map(item => item.unitPerguruan))].sort();
+        const units = [...this.config.statistics.units].sort();
         
-        // Clear existing options except the first one
+        // Simpan nilai yang dipilih
+        const currentValue = unitFilter.value;
+        
+        // Clear options except first one
         while (unitFilter.options.length > 1) {
             unitFilter.remove(1);
         }
         
         // Add new options
         units.forEach(unit => {
-            if (unit) {
-                const option = document.createElement('option');
-                option.value = unit;
-                option.textContent = unit;
-                unitFilter.appendChild(option);
-            }
-        });
-    }
-    
-    // Filter data based on search and filters
-    filterData() {
-        const searchInput = document.getElementById('searchInput');
-        const statusFilter = document.getElementById('statusFilter');
-        const unitFilter = document.getElementById('unitFilter');
-        const dateFilter = document.getElementById('dateFilter');
-        
-        let filtered = [...this.config.allData];
-        
-        // Search filter
-        if (searchInput && searchInput.value) {
-            const searchTerm = searchInput.value.toLowerCase();
-            filtered = filtered.filter(item => 
-                (item.fullName && item.fullName.toLowerCase().includes(searchTerm)) ||
-                (item.email && item.email.toLowerCase().includes(searchTerm)) ||
-                (item.phone && item.phone.includes(searchTerm)) ||
-                (item.submissionId && item.submissionId.toLowerCase().includes(searchTerm)) ||
-                (item.prodi && item.prodi.toLowerCase().includes(searchTerm)) ||
-                (item.unitPerguruan && item.unitPerguruan.toLowerCase().includes(searchTerm))
-            );
-        }
-        
-        // Status filter
-        if (statusFilter && statusFilter.value) {
-            filtered = filtered.filter(item => 
-                item.attendanceStatus === statusFilter.value
-            );
-        }
-        
-        // Unit filter
-        if (unitFilter && unitFilter.value) {
-            filtered = filtered.filter(item => 
-                item.unitPerguruan === unitFilter.value
-            );
-        }
-        
-        // Date filter
-        if (dateFilter && dateFilter.value) {
-            const filterDate = new Date(dateFilter.value);
-            filtered = filtered.filter(item => {
-                const itemDate = new Date(item.submittedAt || item.timestamp);
-                return itemDate.toDateString() === filterDate.toDateString();
-            });
-        }
-        
-        this.config.filteredData = filtered;
-        this.config.currentPage = 1;
-        this.renderTable();
-    }
-    
-    // Render data table
-    renderTable() {
-        const tableBody = document.getElementById('tableBody');
-        const pagination = document.getElementById('pagination');
-        const emptyState = document.getElementById('emptyState');
-        
-        if (!tableBody || !pagination || !emptyState) return;
-        
-        // Calculate pagination
-        const totalItems = this.config.filteredData.length;
-        this.config.totalPages = Math.ceil(totalItems / this.config.itemsPerPage);
-        const startIndex = (this.config.currentPage - 1) * this.config.itemsPerPage;
-        const endIndex = startIndex + this.config.itemsPerPage;
-        const pageData = this.config.filteredData.slice(startIndex, endIndex);
-        
-        // Clear table
-        tableBody.innerHTML = '';
-        
-        // Show empty state if no data
-        if (pageData.length === 0) {
-            tableBody.style.display = 'none';
-            emptyState.style.display = 'block';
-            pagination.innerHTML = '';
-            
-            // Update showing data count
-            document.getElementById('showingData').textContent = '0';
-            
-            return;
-        }
-        
-        tableBody.style.display = 'table-row-group';
-        emptyState.style.display = 'none';
-        
-        // Populate table rows
-        pageData.forEach((item, index) => {
-            const actualIndex = startIndex + index + 1;
-            const row = this.createTableRow(item, actualIndex);
-            tableBody.appendChild(row);
+            const option = document.createElement('option');
+            option.value = unit;
+            option.textContent = unit;
+            unitFilter.appendChild(option);
         });
         
-        // Update showing data count
-        document.getElementById('showingData').textContent = `${startIndex + 1}-${Math.min(endIndex, totalItems)} dari ${totalItems}`;
-        
-        // Render pagination
-        this.renderPagination();
+        // Restore selected value
+        unitFilter.value = currentValue;
     }
     
-    // Create table row
-    createTableRow(item, index) {
-        const row = document.createElement('tr');
+    // Show reason in modal
+    showReason(submissionId) {
+        const item = this.config.allData.find(item => item.submissionId === submissionId);
+        if (!item) return;
         
-        // Format date
-        const date = new Date(item.submittedAt || item.timestamp);
-        const formattedDate = date.toLocaleString('id-ID', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        const reason = item.hadirReason || item.absenceReason || '-';
+        const reasonType = item.attendanceStatus === 'Hadir' ? 'Alasan Hadir' : 'Alasan Tidak Hadir';
         
-        // Format additional info
-        let additionalInfo = '';
-        if (item.attendanceStatus === 'Hadir') {
-            additionalInfo = `Transport: ${item.transportation || '-'}`;
-            if (item.needCertificate) additionalInfo += ', Sertifikat';
-            if (item.needAccommodation) additionalInfo += ', Akomodasi';
-        } else {
-            additionalInfo = item.absenceReason || '-';
-        }
-        
-        // Status badge
-        const statusClass = item.attendanceStatus === 'Hadir' ? 'status-present' : 
-                          item.attendanceStatus === 'Tidak Hadir' ? 'status-absent' : 'status-pending';
-        
-        row.innerHTML = `
-            <td>
-                <input type="checkbox" 
-                       class="row-checkbox" 
-                       value="${item.submissionId || index}"
-                       onchange="admin.toggleRowSelection(this)">
-            </td>
-            <td>${index}</td>
-            <td><small>${item.submissionId || '-'}</small></td>
-            <td><small>${formattedDate}</small></td>
-            <td>${item.fullName || '-'}</td>
-            <td><small>${item.email || '-'}</small></td>
-            <td>${item.phone || '-'}</td>
-            <td>${item.prodi || '-'}</td>
-            <td><small>${item.unitPerguruan || '-'}</small></td>
-            <td>
-                <span class="status-badge ${statusClass}">
-                    ${item.attendanceStatus || '-'}
-                </span>
-            </td>
-            <td><small>${additionalInfo}</small></td>
-            <td>
-                <div class="action-buttons">
-                    <button class="action-btn btn-view" 
-                            onclick="admin.viewDetail('${item.submissionId || index}')"
-                            title="Lihat Detail">
-                        <i class="fas fa-eye"></i>
-                    </button>
-                    <button class="action-btn btn-delete" 
-                            onclick="admin.confirmDeleteSingle('${item.submissionId || index}')"
-                            title="Hapus">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            </td>
-        `;
-        
-        // Highlight selected rows
-        const rowId = item.submissionId || index;
-        if (this.config.selectedRows.has(rowId)) {
-            row.classList.add('selected');
-            row.querySelector('.row-checkbox').checked = true;
-        }
-        
-        return row;
-    }
-    
-    // Render pagination
-    renderPagination() {
-        const pagination = document.getElementById('pagination');
-        if (!pagination) return;
-        
-        pagination.innerHTML = '';
-        
-        if (this.config.totalPages <= 1) return;
-        
-        // Previous button
-        const prevBtn = this.createPaginationButton(
-            '<i class="fas fa-chevron-left"></i>',
-            this.config.currentPage === 1,
-            () => {
-                if (this.config.currentPage > 1) {
-                    this.config.currentPage--;
-                    this.renderTable();
-                }
-            }
-        );
-        pagination.appendChild(prevBtn);
-        
-        // Page numbers
-        const maxVisible = 5;
-        let startPage = Math.max(1, this.config.currentPage - Math.floor(maxVisible / 2));
-        let endPage = Math.min(this.config.totalPages, startPage + maxVisible - 1);
-        
-        if (endPage - startPage + 1 < maxVisible) {
-            startPage = Math.max(1, endPage - maxVisible + 1);
-        }
-        
-        for (let i = startPage; i <= endPage; i++) {
-            const pageBtn = this.createPaginationButton(
-                i,
-                i === this.config.currentPage,
-                () => {
-                    this.config.currentPage = i;
-                    this.renderTable();
-                }
-            );
-            pagination.appendChild(pageBtn);
-        }
-        
-        // Next button
-        const nextBtn = this.createPaginationButton(
-            '<i class="fas fa-chevron-right"></i>',
-            this.config.currentPage === this.config.totalPages,
-            () => {
-                if (this.config.currentPage < this.config.totalPages) {
-                    this.config.currentPage++;
-                    this.renderTable();
-                }
-            }
-        );
-        pagination.appendChild(nextBtn);
-    }
-    
-    // Create pagination button
-    createPaginationButton(text, isActive, onClick) {
-        const button = document.createElement('button');
-        button.className = `page-btn ${isActive ? 'active' : ''}`;
-        button.innerHTML = text;
-        button.onclick = onClick;
-        button.disabled = isActive && typeof text === 'string' && text.includes('chevron');
-        return button;
-    }
-    
-    // Toggle row selection
-    toggleRowSelection(checkbox) {
-        const rowId = checkbox.value;
-        
-        if (checkbox.checked) {
-            this.config.selectedRows.add(rowId);
-            checkbox.closest('tr').classList.add('selected');
-        } else {
-            this.config.selectedRows.delete(rowId);
-            checkbox.closest('tr').classList.remove('selected');
-        }
-        
-        // Update select all checkbox
-        this.updateSelectAllCheckbox();
-    }
-    
-    // Toggle select all
-    toggleSelectAll() {
-        const selectAll = document.getElementById('selectAll');
-        const selectAllHeader = document.getElementById('selectAllHeader');
-        const checkboxes = document.querySelectorAll('.row-checkbox');
-        
-        const isChecked = selectAll.checked || selectAllHeader.checked;
-        
-        checkboxes.forEach(checkbox => {
-            checkbox.checked = isChecked;
-            this.toggleRowSelection(checkbox);
-        });
-    }
-    
-    // Update select all checkbox
-    updateSelectAllCheckbox() {
-        const checkboxes = document.querySelectorAll('.row-checkbox');
-        const selectAll = document.getElementById('selectAll');
-        const selectAllHeader = document.getElementById('selectAllHeader');
-        
-        if (checkboxes.length === 0) {
-            selectAll.checked = false;
-            selectAllHeader.checked = false;
-            return;
-        }
-        
-        const checkedCount = document.querySelectorAll('.row-checkbox:checked').length;
-        const allChecked = checkedCount === checkboxes.length && checkboxes.length > 0;
-        
-        selectAll.checked = allChecked;
-        selectAllHeader.checked = allChecked;
-    }
-    
-    // Delete selected rows
-    deleteSelected() {
-        const selectedIds = Array.from(this.config.selectedRows);
-        
-        if (selectedIds.length === 0) {
-            this.showNotification('warning', 'Tidak ada data yang dipilih');
-            return;
-        }
-        
-        this.config.currentDeleteIds = selectedIds;
-        this.showDeleteModal(
-            `Apakah Anda yakin ingin menghapus ${selectedIds.length} data terpilih?`,
-            'confirmDeleteSelected'
-        );
-    }
-    
-    // Confirm delete single
-    confirmDeleteSingle(id) {
-        this.config.currentDeleteId = id;
-        this.showDeleteModal(
-            'Apakah Anda yakin ingin menghapus data ini?',
-            'confirmDeleteSingle'
-        );
-    }
-    
-    // Show delete confirmation modal
-    showDeleteModal(message, callback) {
-        document.getElementById('deleteMessage').textContent = message;
-        document.getElementById('deleteModal').classList.add('active');
-        window.currentDeleteCallback = callback;
-    }
-    
-    // Close delete modal
-    closeDeleteModal() {
-        document.getElementById('deleteModal').classList.remove('active');
-        this.config.currentDeleteId = null;
-        this.config.currentDeleteIds = null;
-        window.currentDeleteCallback = null;
-    }
-    
-    // Confirm delete
-    confirmDelete() {
-        const callback = window.currentDeleteCallback;
-        
-        if (callback === 'confirmDeleteSingle') {
-            this.deleteSingleRecord();
-        } else if (callback === 'confirmDeleteSelected') {
-            this.deleteMultipleRecords();
-        }
-        
-        this.closeDeleteModal();
-    }
-    
-    // Delete single record
-    deleteSingleRecord() {
-        if (!this.config.currentDeleteId) return;
-        
-        // Find and remove from allData
-        const index = this.config.allData.findIndex(item => 
-            item.submissionId === this.config.currentDeleteId || 
-            item.submissionId?.toString() === this.config.currentDeleteId
-        );
-        
-        if (index !== -1) {
-            this.config.allData.splice(index, 1);
-            this.saveData();
-            this.loadData();
-            this.showNotification('success', 'Data berhasil dihapus');
-        }
-    }
-    
-    // Delete multiple records
-    deleteMultipleRecords() {
-        if (!this.config.currentDeleteIds || this.config.currentDeleteIds.length === 0) return;
-        
-        // Filter out selected items
-        this.config.allData = this.config.allData.filter(item => 
-            !this.config.currentDeleteIds.includes(item.submissionId) &&
-            !this.config.currentDeleteIds.includes(item.submissionId?.toString())
-        );
-        
-        this.saveData();
-        this.loadData();
-        this.config.selectedRows.clear();
-        this.showNotification('success', `${this.config.currentDeleteIds.length} data berhasil dihapus`);
-    }
-    
-    // View detail
-    viewDetail(id) {
-        const item = this.config.allData.find(item => 
-            item.submissionId === id || item.submissionId?.toString() === id
-        );
-        
-        if (!item) {
-            this.showNotification('error', 'Data tidak ditemukan');
-            return;
-        }
-        
-        this.showDetailModal(item);
-    }
-    
-    // Show detail modal
-    showDetailModal(item) {
         const modal = document.getElementById('detailModal');
-        const content = document.getElementById('detailContent');
-        
-        // Format date
-        const date = new Date(item.submittedAt || item.timestamp);
-        const formattedDate = date.toLocaleString('id-ID', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        });
-        
-        // Format additional info
-        let additionalInfo = '';
-        if (item.attendanceStatus === 'Hadir') {
-            additionalInfo = `
-                <div class="detail-item">
-                    <div class="detail-label">Transportasi</div>
-                    <div class="detail-value">${item.transportation || '-'}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Butuh Sertifikat</div>
-                    <div class="detail-value">${item.needCertificate ? 'Ya' : 'Tidak'}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Butuh Akomodasi</div>
-                    <div class="detail-value">${item.needAccommodation ? 'Ya' : 'Tidak'}</div>
-                </div>
-            `;
-        } else {
-            additionalInfo = `
-                <div class="detail-item">
-                    <div class="detail-label">Alasan Tidak Hadir</div>
-                    <div class="detail-value">${item.absenceReason || '-'}</div>
-                </div>
-            `;
-        }
+        const content = document.getElementById('modalContent');
         
         content.innerHTML = `
-            <div class="detail-grid">
-                <div class="detail-item">
-                    <div class="detail-label">ID Pendaftaran</div>
-                    <div class="detail-value">${item.submissionId || '-'}</div>
-                </div>
-                
-                <div class="detail-item">
-                    <div class="detail-label">Tanggal Submit</div>
-                    <div class="detail-value">${formattedDate}</div>
-                </div>
-                
-                <div class="detail-item">
-                    <div class="detail-label">Nama Lengkap</div>
-                    <div class="detail-value">${item.fullName || '-'}</div>
-                </div>
-                
-                <div class="detail-item">
-                    <div class="detail-label">Email</div>
-                    <div class="detail-value">${item.email || '-'}</div>
-                </div>
-                
-                <div class="detail-item">
-                    <div class="detail-label">No. HP/WhatsApp</div>
-                    <div class="detail-value">${item.phone || '-'}</div>
-                </div>
-                
-                <div class="detail-item">
-                    <div class="detail-label">Program Studi</div>
-                    <div class="detail-value">${item.prodi || '-'}</div>
-                </div>
-                
-                <div class="detail-item">
-                    <div class="detail-label">Unit Perguruan</div>
-                    <div class="detail-value">${item.unitPerguruan || '-'}</div>
-                </div>
-                
-                <div class="detail-item">
-                    <div class="detail-label">Status Kehadiran</div>
-                    <div class="detail-value">
-                        <span class="status-badge ${item.attendanceStatus === 'Hadir' ? 'status-present' : 'status-absent'}">
-                            ${item.attendanceStatus || '-'}
-                        </span>
-                    </div>
-                </div>
-                
-                ${additionalInfo}
+            <div class="modal-detail">
+                <label>Nama Peserta</label>
+                <div class="value">${item.fullName || '-'}</div>
             </div>
+            <div class="modal-detail">
+                <label>Status Kehadiran</label>
+                <div class="value">
+                    <span class="status-badge ${item.attendanceStatus === 'Hadir' ? 'status-hadir' : 'status-tidak-hadir'}">
+                        ${item.attendanceStatus || '-'}
+                    </span>
+                </div>
+            </div>
+            <div class="modal-detail">
+                <label>${reasonType}</label>
+                <div class="modal-reason">
+                    ${reason.replace(/\n/g, '<br>')}
+                </div>
+            </div>
+        `;
+        
+        modal.classList.add('active');
+    }
+    
+    // Show full detail
+    showDetail(submissionId) {
+        const item = this.config.allData.find(item => item.submissionId === submissionId);
+        if (!item) return;
+        
+        const reason = item.hadirReason || item.absenceReason || '-';
+        const reasonType = item.attendanceStatus === 'Hadir' ? 'Alasan Hadir' : 'Alasan Tidak Hadir';
+        
+        // Format tanggal
+        const date = item.timestamp || item.submittedAt || item.backupTimestamp;
+        const formattedDate = date ? 
+            new Date(date).toLocaleString('id-ID', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }) : '-';
+        
+        const modal = document.getElementById('detailModal');
+        const content = document.getElementById('modalContent');
+        
+        content.innerHTML = `
+            <div class="modal-detail">
+                <label>ID Pendaftaran</label>
+                <div class="value">${item.submissionId || '-'}</div>
+            </div>
+            <div class="modal-detail">
+                <label>Nama Lengkap</label>
+                <div class="value">${item.fullName || '-'}</div>
+            </div>
+            <div class="modal-detail">
+                <label>Email</label>
+                <div class="value">${item.email || '-'}</div>
+            </div>
+            <div class="modal-detail">
+                <label>Nomor HP/WhatsApp</label>
+                <div class="value">${item.phone || '-'}</div>
+            </div>
+            <div class="modal-detail">
+                <label>Program Studi</label>
+                <div class="value">${item.prodi || '-'}</div>
+            </div>
+            <div class="modal-detail">
+                <label>Unit Perguruan</label>
+                <div class="value">${item.unitPerguruan || '-'}</div>
+            </div>
+            <div class="modal-detail">
+                <label>Status Kehadiran</label>
+                <div class="value">
+                    <span class="status-badge ${item.attendanceStatus === 'Hadir' ? 'status-hadir' : 'status-tidak-hadir'}">
+                        ${item.attendanceStatus || '-'}
+                    </span>
+                </div>
+            </div>
+            <div class="modal-detail">
+                <label>${reasonType}</label>
+                <div class="modal-reason">
+                    ${reason.replace(/\n/g, '<br>')}
+                </div>
+            </div>
+            <div class="modal-detail">
+                <label>Waktu Submit</label>
+                <div class="value">${formattedDate}</div>
+            </div>
+            ${item.ipAddress ? `
+                <div class="modal-detail">
+                    <label>IP Address</label>
+                    <div class="value">${item.ipAddress || '-'}</div>
+                </div>
+            ` : ''}
         `;
         
         modal.classList.add('active');
@@ -689,84 +625,41 @@ class AdminPanel {
         document.getElementById('detailModal').classList.remove('active');
     }
     
-    // Print detail
-    printDetail() {
-        const printContent = document.getElementById('detailContent').innerHTML;
-        const originalContent = document.body.innerHTML;
+    // Show loading state
+    showLoading(show) {
+        const dataContainer = document.getElementById('dataContainer');
+        if (!dataContainer) return;
         
-        document.body.innerHTML = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Detail Pendaftaran</title>
-                <style>
-                    body { font-family: Arial, sans-serif; padding: 20px; }
-                    .print-header { 
-                        text-align: center; 
-                        margin-bottom: 30px;
-                        border-bottom: 2px solid #333;
-                        padding-bottom: 20px;
-                    }
-                    .detail-item { margin-bottom: 15px; }
-                    .detail-label { font-weight: bold; color: #333; }
-                    .detail-value { 
-                        color: #666; 
-                        padding: 8px;
-                        background: #f5f5f5;
-                        border-radius: 4px;
-                        margin-top: 5px;
-                    }
-                    .status-badge {
-                        display: inline-block;
-                        padding: 4px 12px;
-                        border-radius: 20px;
-                        font-size: 0.85rem;
-                    }
-                    .status-present { background: #d1fae5; color: #065f46; }
-                    .status-absent { background: #fee2e2; color: #991b1b; }
-                    @media print {
-                        .no-print { display: none; }
-                        body { padding: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="print-header">
-                    <h1>Detail Pendaftaran</h1>
-                    <h3>Kongres IV UKM XYZ - 31 Januari 2024</h3>
+        if (show) {
+            dataContainer.innerHTML = `
+                <div style="text-align: center; padding: 40px; background: white; border-radius: var(--radius);">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 3rem; color: var(--gray); margin-bottom: 20px;"></i>
+                    <h3>Memuat Data...</h3>
+                    <p>Silakan tunggu sebentar</p>
                 </div>
-                ${printContent}
-                <div class="no-print" style="text-align: center; margin-top: 30px;">
-                    <button onclick="window.print()" style="padding: 10px 20px; background: #4361ee; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                        <i class="fas fa-print"></i> Cetak
-                    </button>
-                    <button onclick="window.close()" style="padding: 10px 20px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px;">
-                        <i class="fas fa-times"></i> Tutup
-                    </button>
-                </div>
-            </body>
-            </html>
-        `;
-        
-        window.print();
-        
-        // Restore original content
-        setTimeout(() => {
-            document.body.innerHTML = originalContent;
-            this.renderTable(); // Re-render table
-        }, 100);
+            `;
+        }
     }
     
-    // Save data to localStorage
-    saveData() {
-        try {
-            localStorage.setItem('attendanceSubmissions', JSON.stringify(this.config.allData));
-            localStorage.setItem('adminAttendanceData', JSON.stringify(this.config.allData));
-            this.updateLastUpdate();
-        } catch (error) {
-            console.error('Error saving data:', error);
-            this.showNotification('error', 'Gagal menyimpan data: ' + error.message);
+    // Update last update time
+    updateLastUpdate() {
+        const now = new Date();
+        const formattedTime = now.toLocaleString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        
+        const lastUpdateEl = document.getElementById('lastUpdate');
+        if (lastUpdateEl) {
+            lastUpdateEl.textContent = formattedTime;
         }
+    }
+    
+    // Refresh data
+    async refreshData() {
+        await this.loadData();
+        this.showNotification('success', 'Data berhasil di-refresh');
     }
     
     // Export data
@@ -788,7 +681,6 @@ class AdminPanel {
         const headers = [
             'No',
             'ID Pendaftaran',
-            'Tanggal',
             'Nama Lengkap',
             'Email',
             'No. HP',
@@ -796,9 +688,6 @@ class AdminPanel {
             'Unit Perguruan',
             'Status Kehadiran',
             'Alasan/Keterangan',
-            'Transportasi',
-            'Butuh Sertifikat',
-            'Butuh Akomodasi',
             'Waktu Submit'
         ];
         
@@ -808,20 +697,14 @@ class AdminPanel {
                 const values = [
                     index + 1,
                     `"${row.submissionId || ''}"`,
-                    `"${new Date(row.submittedAt || row.timestamp).toLocaleString('id-ID')}"`,
                     `"${row.fullName || ''}"`,
                     `"${row.email || ''}"`,
                     `"${row.phone || ''}"`,
                     `"${row.prodi || ''}"`,
                     `"${row.unitPerguruan || ''}"`,
                     `"${row.attendanceStatus || ''}"`,
-                    `"${row.attendanceStatus === 'Hadir' ? 
-                        `Transportasi: ${row.transportation || '-'}, Sertifikat: ${row.needCertificate ? 'Ya' : 'Tidak'}, Akomodasi: ${row.needAccommodation ? 'Ya' : 'Tidak'}` : 
-                        row.absenceReason || ''}"`,
-                    `"${row.transportation || ''}"`,
-                    `"${row.needCertificate ? 'Ya' : 'Tidak'}"`,
-                    `"${row.needAccommodation ? 'Ya' : 'Tidak'}"`,
-                    `"${row.submittedAt || row.timestamp || ''}"`
+                    `"${(row.hadirReason || row.absenceReason || '').replace(/"/g, '""')}"`,
+                    `"${new Date(row.timestamp || row.submittedAt || Date.now()).toLocaleString('id-ID')}"`
                 ];
                 return values.join(',');
             })
@@ -832,7 +715,7 @@ class AdminPanel {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `daftar-hadir-${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `data-kehadiran-kongres-${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
         URL.revokeObjectURL(url);
         
@@ -846,16 +729,88 @@ class AdminPanel {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `daftar-hadir-${new Date().toISOString().split('T')[0]}.json`;
+        link.download = `data-kehadiran-kongres-${new Date().toISOString().split('T')[0]}.json`;
         link.click();
         URL.revokeObjectURL(url);
         
         this.showNotification('success', 'Data berhasil di-export ke JSON');
     }
     
+    // Print data
+    printData() {
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Data Kehadiran Kongres IV UKM Pencak Silat</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 20px; }
+                    h1 { text-align: center; color: #333; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th { background: #f5f5f5; padding: 10px; border: 1px solid #ddd; text-align: left; }
+                    td { padding: 10px; border: 1px solid #ddd; vertical-align: top; }
+                    .reason { max-width: 300px; word-wrap: break-word; }
+                    @media print {
+                        @page { margin: 0.5in; }
+                        .no-print { display: none; }
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>Data Kehadiran Kongres IV UKM Pencak Silat</h1>
+                <p>Total Data: ${this.config.allData.length} | Dicetak: ${new Date().toLocaleString('id-ID')}</p>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Nama</th>
+                            <th>Prodi</th>
+                            <th>Unit</th>
+                            <th>Status</th>
+                            <th class="reason">Alasan</th>
+                            <th>Waktu</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${this.config.allData.map((item, index) => `
+                            <tr>
+                                <td>${index + 1}</td>
+                                <td>${item.fullName || '-'}</td>
+                                <td>${item.prodi || '-'}</td>
+                                <td>${item.unitPerguruan || '-'}</td>
+                                <td>${item.attendanceStatus || '-'}</td>
+                                <td class="reason">${item.hadirReason || item.absenceReason || '-'}</td>
+                                <td>${new Date(item.timestamp || item.submittedAt || Date.now()).toLocaleDateString('id-ID')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                
+                <div class="no-print" style="margin-top: 30px; text-align: center;">
+                    <button onclick="window.print()" style="padding: 10px 20px; background: #4361ee; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        <i class="fas fa-print"></i> Cetak
+                    </button>
+                    <button onclick="window.close()" style="padding: 10px 20px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px;">
+                        <i class="fas fa-times"></i> Tutup
+                    </button>
+                </div>
+                
+                <script>
+                    window.onload = function() {
+                        window.print();
+                    };
+                <\/script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    }
+    
     // Clear all data
     clearAllData() {
-        if (!confirm('PERINGATAN: Ini akan menghapus SEMUA data pendaftaran! Apakah Anda yakin?')) {
+        if (!confirm('PERINGATAN: Ini akan menghapus SEMUA data peserta! Apakah Anda yakin?')) {
             return;
         }
         
@@ -863,40 +818,26 @@ class AdminPanel {
             return;
         }
         
-        localStorage.removeItem('attendanceSubmissions');
+        // Clear all storage
+        localStorage.removeItem('form_backup');
         localStorage.removeItem('adminAttendanceData');
-        localStorage.removeItem('attendanceFormDraft');
         localStorage.removeItem('lastSubmission');
         
         this.config.allData = [];
         this.config.filteredData = [];
-        this.config.selectedRows.clear();
+        this.updateStatistics();
+        this.displayData();
         
-        this.loadData();
         this.showNotification('success', 'Semua data berhasil dihapus');
-    }
-    
-    // Refresh data
-    refreshData() {
-        this.loadData();
-        this.showNotification('info', 'Data berhasil di-refresh');
-    }
-    
-    // Update last update timestamp
-    updateLastUpdate() {
-        const now = new Date();
-        const formattedTime = now.toLocaleString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        });
-        document.getElementById('lastUpdate').textContent = formattedTime;
     }
     
     // Logout
     logout() {
         if (confirm('Apakah Anda yakin ingin logout?')) {
-            clearInterval(this.autoRefresh);
+            // Clear auto-refresh interval
+            if (this.autoRefreshInterval) {
+                clearInterval(this.autoRefreshInterval);
+            }
             
             localStorage.removeItem('adminLoggedIn');
             localStorage.removeItem('adminUsername');
@@ -904,7 +845,6 @@ class AdminPanel {
             document.getElementById('adminDashboard').style.display = 'none';
             document.getElementById('loginScreen').style.display = 'block';
             
-            // Reset login form
             document.getElementById('username').value = '';
             document.getElementById('password').value = '';
             
@@ -914,7 +854,6 @@ class AdminPanel {
     
     // Show notification
     showNotification(type, message) {
-        // Create notification element
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
         
@@ -925,22 +864,24 @@ class AdminPanel {
             info: 'info-circle'
         };
         
+        const colors = {
+            success: '#10b981',
+            error: '#ef4444',
+            warning: '#f59e0b',
+            info: '#3b82f6'
+        };
+        
         notification.innerHTML = `
             <i class="fas fa-${icons[type] || 'info-circle'}"></i>
             <span>${message}</span>
         `;
         
-        // Add styles
         notification.style.cssText = `
             position: fixed;
             top: 20px;
             right: 20px;
             background: white;
-            border-left: 4px solid ${
-                type === 'success' ? '#10b981' :
-                type === 'error' ? '#ef4444' :
-                type === 'warning' ? '#f59e0b' : '#3b82f6'
-            };
+            border-left: 4px solid ${colors[type]};
             border-radius: 8px;
             padding: 16px 20px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
@@ -953,45 +894,11 @@ class AdminPanel {
             animation: slideIn 0.3s ease;
         `;
         
-        notification.querySelector('i').style.cssText = `
-            color: ${
-                type === 'success' ? '#10b981' :
-                type === 'error' ? '#ef4444' :
-                type === 'warning' ? '#f59e0b' : '#3b82f6'
-            };
-            font-size: 1.2em;
-        `;
+        notification.querySelector('i').style.color = colors[type];
         
-        // Add to body
         document.body.appendChild(notification);
         
-        // Add CSS for animation
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideIn {
-                from {
-                    opacity: 0;
-                    transform: translateX(100%);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateX(0);
-                }
-            }
-            @keyframes slideOut {
-                from {
-                    opacity: 1;
-                    transform: translateX(0);
-                }
-                to {
-                    opacity: 0;
-                    transform: translateX(100%);
-                }
-            }
-        `;
-        document.head.appendChild(style);
-        
-        // Auto remove after 5 seconds
+        // Auto remove
         setTimeout(() => {
             notification.style.animation = 'slideOut 0.3s ease';
             setTimeout(() => {
@@ -1000,24 +907,40 @@ class AdminPanel {
                 }
             }, 300);
         }, 5000);
+        
+        // Add CSS for animation
+        if (!document.querySelector('#notification-styles')) {
+            const style = document.createElement('style');
+            style.id = 'notification-styles';
+            style.textContent = `
+                @keyframes slideIn {
+                    from {
+                        opacity: 0;
+                        transform: translateX(100%);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateX(0);
+                    }
+                }
+                @keyframes slideOut {
+                    from {
+                        opacity: 1;
+                        transform: translateX(0);
+                    }
+                    to {
+                        opacity: 0;
+                        transform: translateX(100%);
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
 }
 
 // Initialize Admin Panel
 const admin = new AdminPanel();
 
-// Make admin instance available globally for inline event handlers
+// Make admin available globally
 window.admin = admin;
-
-// Global functions for inline event handlers
-window.refreshData = () => admin.refreshData();
-window.exportData = (format) => admin.exportData(format);
-window.clearAllData = () => admin.clearAllData();
-window.logout = () => admin.logout();
-window.filterData = () => admin.filterData();
-window.toggleSelectAll = () => admin.toggleSelectAll();
-window.deleteSelected = () => admin.deleteSelected();
-window.closeModal = () => admin.closeModal();
-window.closeDeleteModal = () => admin.closeDeleteModal();
-window.confirmDelete = () => admin.confirmDelete();
-window.printDetail = () => admin.printDetail();
